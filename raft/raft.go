@@ -122,10 +122,14 @@ type Config struct {
 	// candidate and start an election. ElectionTick must be greater than
 	// HeartbeatTick. We suggest ElectionTick = 10 * HeartbeatTick to avoid
 	// unnecessary leader switching.
+	// OyTao: Election超时的Tick。如果follower在这段时间内没有收到Leader发送过来的信息，
+	//		  则重新开始选主操作。
 	ElectionTick int
+
 	// HeartbeatTick is the number of Node.Tick invocations that must pass between
 	// heartbeats. That is, a leader sends heartbeat messages to maintain its
 	// leadership every HeartbeatTick ticks.
+	// OyTao: Node之间的心跳Tick。ElectionTick要大于HeartbeatTick,避免不必要的选主操作。
 	HeartbeatTick int
 
 	// Storage is the storage for raft. raft generates entries and states to be
@@ -133,6 +137,7 @@ type Config struct {
 	// Storage when it needs. raft reads out the previous state and configuration
 	// out of storage when restarting.
 	Storage Storage
+
 	// Applied is the last applied index. It should only be set when restarting
 	// raft. raft will not return entries to the application smaller or equal to
 	// Applied. If Applied is unset when restarting, raft might return previous
@@ -178,6 +183,7 @@ type Config struct {
 	Logger Logger
 }
 
+// OyTao: 简单验证Config的合法性。
 func (c *Config) validate() error {
 	if c.ID == None {
 		return errors.New("cannot use none as id")
@@ -229,9 +235,12 @@ type raft struct {
 
 	// the leader id
 	lead uint64
+
 	// leadTransferee is id of the leader transfer target when its value is not zero.
 	// Follow the procedure defined in raft thesis 3.10.
+	// OyTao: leader从lead转向LeadTransferee。
 	leadTransferee uint64
+
 	// New configuration is ignored if there exists unapplied configuration.
 	pendingConf bool
 
@@ -267,6 +276,7 @@ func newRaft(c *Config) *raft {
 	if err := c.validate(); err != nil {
 		panic(err.Error())
 	}
+	// OyTao: 从持久化数据中得到Term,Log idx等信息。 TODO
 	raftlog := newLog(c.Storage, c.Logger)
 	hs, cs, err := c.Storage.InitialState()
 	if err != nil {
@@ -296,15 +306,22 @@ func newRaft(c *Config) *raft {
 		preVote:          c.PreVote,
 		readOnly:         newReadOnly(c.ReadOnlyOption),
 	}
+
+	// OyTao: 当前Node(c.ID)与其他Node之间的通信。 TODO
 	for _, p := range peers {
 		r.prs[p] = &Progress{Next: 1, ins: newInflights(r.maxInflight)}
 	}
+
+	// OyTao: 如果不是第一次启动，则需要初始化term, commited, vote信息。
 	if !isHardStateEqual(hs, emptyState) {
 		r.loadState(hs)
 	}
+	// OyTao: 更新applied Index
 	if c.Applied > 0 {
 		raftlog.appliedTo(c.Applied)
 	}
+
+	// OyTao: 当前的Node设置为Follower状态。
 	r.becomeFollower(r.Term, None)
 
 	var nodesStrs []string
@@ -1021,6 +1038,7 @@ func stepCandidate(r *raft, m pb.Message) {
 	}
 }
 
+// OyTao: Follower Node 处理函数
 func stepFollower(r *raft, m pb.Message) {
 	switch m.Type {
 	case pb.MsgProp:
