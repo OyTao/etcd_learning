@@ -171,10 +171,14 @@ type Peer struct {
 // StartNode returns a new Node given configuration and a list of raft peers.
 // It appends a ConfChangeAddNode entry for each given peer to the initial log.
 func StartNode(c *Config, peers []Peer) Node {
+	// OyTao:Local Node的configure信息
 	r := newRaft(c)
 	// become the follower at term 1 and apply initial configuration
 	// entries of term 1
+	// OyTao: 只有第一次启动时会跳用StartNode函数。默认初始的Term是1.
 	r.becomeFollower(1, None)
+
+	// OyTao: 如果系统初始化时候已经设置好集群中的成员，需要记录在Log中。
 	for _, peer := range peers {
 		cc := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: peer.ID, Context: peer.Context}
 		d, err := cc.Marshal()
@@ -184,10 +188,13 @@ func StartNode(c *Config, peers []Peer) Node {
 		e := pb.Entry{Type: pb.EntryConfChange, Term: 1, Index: r.raftLog.lastIndex() + 1, Data: d}
 		r.raftLog.append(e)
 	}
+
 	// Mark these initial entries as committed.
 	// TODO(bdarnell): These entries are still unstable; do we need to preserve
 	// the invariant that committed < unstable?
+
 	r.raftLog.committed = r.raftLog.lastIndex()
+
 	// Now apply them, mainly so that the application can call Campaign
 	// immediately after StartNode in tests. Note that these nodes will
 	// be added to raft twice: here and when the application's Ready
@@ -200,7 +207,7 @@ func StartNode(c *Config, peers []Peer) Node {
 	for _, peer := range peers {
 		r.addNode(peer.ID)
 	}
-
+	// Local Node 消息通道初始化
 	n := newNode()
 	n.logger = c.Logger
 	go n.run(r)
@@ -236,6 +243,7 @@ type node struct {
 	logger Logger
 }
 
+// OyTao: 消息交互通道
 func newNode() node {
 	return node{
 		propc:      make(chan pb.Message),
@@ -266,6 +274,7 @@ func (n *node) Stop() {
 	<-n.done
 }
 
+// OyTao: local Node Start Running.
 func (n *node) run(r *raft) {
 	var propc chan pb.Message
 	var readyc chan Ready
@@ -275,6 +284,7 @@ func (n *node) run(r *raft) {
 	var prevSnapi uint64
 	var rd Ready
 
+	// OyTao: 初始化操作
 	lead := None
 	prevSoftSt := r.softState()
 	prevHardSt := emptyState
@@ -499,6 +509,7 @@ func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
 	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
 }
 
+// OyTao: 根绝SoftState， HardState初始化一个Read Only
 func newReady(r *raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 	rd := Ready{
 		Entries:          r.raftLog.unstableEntries(),

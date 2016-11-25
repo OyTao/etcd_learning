@@ -106,6 +106,7 @@ func (st StateType) String() string {
 }
 
 // Config contains the parameters to start a raft.
+// OyTao: Node的一些Config信息
 type Config struct {
 	// ID is the identity of the local raft. ID cannot be 0.
 	ID uint64
