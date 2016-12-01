@@ -118,6 +118,7 @@ func (pr *Progress) maybeUpdate(n uint64) bool {
 		updated = true
 		pr.resume()
 	}
+
 	if pr.Next < n+1 {
 		pr.Next = n + 1
 	}
@@ -148,6 +149,7 @@ func (pr *Progress) maybeDecrTo(rejected, last uint64) bool {
 	if pr.Next = min(rejected, last+1); pr.Next < 1 {
 		pr.Next = 1
 	}
+
 	pr.resume()
 	return true
 }

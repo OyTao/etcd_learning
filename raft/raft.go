@@ -901,6 +901,7 @@ func stepLeader(r *raft, m pb.Message) {
 		if m.Reject {
 			r.logger.Debugf("%x received msgApp rejection(lastindex: %d) from %x for index %d",
 				r.id, m.RejectHint, m.From, m.Index)
+
 			if pr.maybeDecrTo(m.Index, m.RejectHint) {
 				r.logger.Debugf("%x decreased progress of %x to [%s]", r.id, m.From, pr)
 				if pr.State == ProgressStateReplicate {
@@ -908,8 +909,10 @@ func stepLeader(r *raft, m pb.Message) {
 				}
 				r.sendAppend(m.From)
 			}
+
 		} else {
 			oldPaused := pr.isPaused()
+
 			if pr.maybeUpdate(m.Index) {
 				switch {
 				case pr.State == ProgressStateProbe:
@@ -928,6 +931,7 @@ func stepLeader(r *raft, m pb.Message) {
 					// an update before, send it now.
 					r.sendAppend(m.From)
 				}
+
 				// Transfer leadership is in progress.
 				if m.From == r.leadTransferee && pr.Match == r.raftLog.lastIndex() {
 					r.logger.Infof("%x sent MsgTimeoutNow to %x after received MsgAppResp", r.id, m.From)
