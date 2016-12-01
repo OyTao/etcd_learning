@@ -204,6 +204,7 @@ raftpb.MessageType. Note that every step is checked by one common method
 'Step' that safety-checks the terms of node and incoming message to prevent
 stale log entries:
 
+	//OyTao: MsgHub是Node自身发送的消息，如果当前node超时，则转变为condidate角色。
 	'MsgHup' is used for election. If a node is a follower or candidate, the
 	'tick' function in 'raft' struct is set as 'tickElection'. If a follower or
 	candidate has not received any heartbeat before the election timeout, it
@@ -215,6 +216,8 @@ stale log entries:
 	the 'raft' struct is set as 'tickHeartbeat', and triggers the leader to
 	send periodic 'MsgHeartbeat' messages to its followers.
 
+	// MsgProp可以理解一个User Request.如果非Leader Node收到此消息，
+	// 并且在集群中存在Leader，则转发消息给Leader。否则refuse.
 	'MsgProp' proposes to append data to its log entries. This is a special
 	type to redirect proposals to leader. Therefore, send method overwrites
 	raftpb.Message's term with its HardState's term to avoid attaching its
@@ -226,6 +229,7 @@ stale log entries:
 	method. It is stored with sender's ID and later forwarded to leader by
 	rafthttp package.
 
+	// MsgApp只能是Leader向非Leader节点发送
 	'MsgApp' contains log entries to replicate. A leader calls bcastAppend,
 	which calls sendAppend, which sends soon-to-be-replicated logs in 'MsgApp'
 	type. When 'MsgApp' is passed to candidate's Step method, candidate reverts

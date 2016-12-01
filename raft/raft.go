@@ -698,11 +698,15 @@ func (r *raft) poll(id uint64, t pb.MessageType, v bool) (granted int) {
 func (r *raft) Step(m pb.Message) error {
 	// Handle the message term, which may result in our stepping down to a follower.
 	switch {
+	// OyTao: 系统启动的默认term是1.
 	case m.Term == 0:
 		// local message
+
+	// OyTao: 如果Node收到的信息中包含的Term信息是大于当前的Term, 则当前的Node转变为Follower。
 	case m.Term > r.Term:
 		lead := m.From
 		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
+			// OyTao: force什么作用？
 			force := bytes.Equal(m.Context, []byte(campaignTransfer))
 			inLease := r.checkQuorum && r.lead != None && r.electionElapsed < r.electionTimeout
 			if !force && inLease {
@@ -729,6 +733,7 @@ func (r *raft) Step(m pb.Message) error {
 			r.becomeFollower(m.Term, lead)
 		}
 
+	// OyTao: 如果当前的Node的Term ID是大于收到信息中包含的Term ID， Do Nothing ????
 	case m.Term < r.Term:
 		if r.checkQuorum && (m.Type == pb.MsgHeartbeat || m.Type == pb.MsgApp) {
 			// We have received messages from a leader at a lower term. It is possible
@@ -753,6 +758,7 @@ func (r *raft) Step(m pb.Message) error {
 		return nil
 	}
 
+	// OyTao: 现在Msg.Term >= Current Node.term
 	switch m.Type {
 	case pb.MsgHup:
 		if r.state != StateLeader {
@@ -778,6 +784,7 @@ func (r *raft) Step(m pb.Message) error {
 	case pb.MsgVote, pb.MsgPreVote:
 		// The m.Term > r.Term clause is for MsgPreVote. For MsgVote m.Term should
 		// always equal r.Term.
+		// OyTao: 为什么在MsgVote消息中，m.Term 肯定肯定与r.Term ????
 		if (r.Vote == None || m.Term > r.Term || r.Vote == m.From) && r.raftLog.isUpToDate(m.Index, m.LogTerm) {
 			r.logger.Infof("%x [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d",
 				r.id, r.raftLog.lastTerm(), r.raftLog.lastIndex(), r.Vote, m.Type, m.From, m.LogTerm, m.Index, r.Term)
@@ -794,6 +801,7 @@ func (r *raft) Step(m pb.Message) error {
 		}
 
 	default:
+		// OyTao: 除了MsgVote，MsgPreVote信息，其他信息都有各种不同角色的stepFunction处理。
 		r.step(r, m)
 	}
 	return nil
@@ -804,9 +812,13 @@ type stepFunc func(r *raft, m pb.Message)
 func stepLeader(r *raft, m pb.Message) {
 	// These message types do not require any progress for m.From.
 	switch m.Type {
+	// OyTao: 当Leader发现heartbeat Timeout, 发送MsgBeat消息给自身。
 	case pb.MsgBeat:
 		r.bcastHeartbeat()
 		return
+	// OyTao: 如果设置了checkQuorum, 在发生了Election超时的情况下，
+	// 会发送MsgCheckQuorum给自身。 Leader此时会检测是否大多数Node是否处于Active，
+	// 如果不满足Quorum Active条件，则会转变为Follower。
 	case pb.MsgCheckQuorum:
 		if !r.checkQuorumActive() {
 			r.logger.Warningf("%x stepped down to follower since quorum is not active", r.id)
@@ -817,12 +829,14 @@ func stepLeader(r *raft, m pb.Message) {
 		if len(m.Entries) == 0 {
 			r.logger.Panicf("%x stepped empty MsgProp", r.id)
 		}
+		// OyTao: 确保当前Node仍然在集群中
 		if _, ok := r.prs[r.id]; !ok {
 			// If we are not currently a member of the range (i.e. this node
 			// was removed from the configuration while serving as leader),
 			// drop any new proposals.
 			return
 		}
+		// OyTao: 如果在Transfer Leader操作过程，则不处理，直接返回
 		if r.leadTransferee != None {
 			r.logger.Debugf("%x [term %d] transfer leadership to %x is in progress; dropping proposal", r.id, r.Term, r.leadTransferee)
 			return
@@ -830,15 +844,20 @@ func stepLeader(r *raft, m pb.Message) {
 
 		for i, e := range m.Entries {
 			if e.Type == pb.EntryConfChange {
+				// OyTao:如果是Confiugre Change消息，
+				// 如果仍存在没有处理完成的ConfChange, 则忽略该信息
 				if r.pendingConf {
 					m.Entries[i] = pb.Entry{Type: pb.EntryNormal}
 				}
 				r.pendingConf = true
 			}
 		}
+		// OyTao: Leader首先记录下Entries，然后广播
 		r.appendEntry(m.Entries...)
 		r.bcastAppend()
 		return
+
+	// OyTao: TODO???
 	case pb.MsgReadIndex:
 		if r.quorum() > 1 {
 			// thinking: use an interally defined context instead of the user given context.
@@ -867,13 +886,16 @@ func stepLeader(r *raft, m pb.Message) {
 	}
 
 	// All other message types require a progress for m.From (pr).
+	// OyTao: 需要确保有相应的progress处理消息（根据消息的发送方确定）
 	pr, prOk := r.prs[m.From]
 	if !prOk {
 		r.logger.Debugf("%x no progress available for %x", r.id, m.From)
 		return
 	}
+	// OyTao: Leader只会收到2种信息(MsgAppResp, HeatbeatResp)
 	switch m.Type {
 	case pb.MsgAppResp:
+		// OyTao:标记处理当前发送消息的progress is Active.
 		pr.RecentActive = true
 
 		if m.Reject {
@@ -913,6 +935,7 @@ func stepLeader(r *raft, m pb.Message) {
 				}
 			}
 		}
+	// OyTao: Leader收到心跳信息的回复，
 	case pb.MsgHeartbeatResp:
 		pr.RecentActive = true
 

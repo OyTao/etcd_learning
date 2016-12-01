@@ -320,14 +320,18 @@ func (n *node) run(r *raft) {
 		// TODO: maybe buffer the config propose if there exists one (the way
 		// described in raft dissertation)
 		// Currently it is dropped in Step silently.
+
 		case m := <-propc:
+			// OyTao: 为什么需要修改message中的From。
 			m.From = r.id
 			r.Step(m)
+
 		case m := <-n.recvc:
 			// filter out response message from unknown From.
 			if _, ok := r.prs[m.From]; ok || !IsResponseMsg(m.Type) {
 				r.Step(m) // raft never returns an error
 			}
+
 		case cc := <-n.confc:
 			if cc.NodeID == None {
 				r.resetPendingConf()
@@ -356,8 +360,10 @@ func (n *node) run(r *raft) {
 			case n.confstatec <- pb.ConfState{Nodes: r.nodes()}:
 			case <-n.done:
 			}
+
 		case <-n.tickc:
 			r.tick()
+
 		case readyc <- rd:
 			if rd.SoftState != nil {
 				prevSoftSt = rd.SoftState
@@ -377,6 +383,7 @@ func (n *node) run(r *raft) {
 			r.msgs = nil
 			r.readStates = nil
 			advancec = n.advancec
+
 		case <-advancec:
 			if prevHardSt.Commit != 0 {
 				r.raftLog.appliedTo(prevHardSt.Commit)
@@ -387,8 +394,10 @@ func (n *node) run(r *raft) {
 			}
 			r.raftLog.stableSnapTo(prevSnapi)
 			advancec = nil
+
 		case c := <-n.status:
 			c <- getStatus(r)
+
 		case <-n.stop:
 			close(n.done)
 			return
