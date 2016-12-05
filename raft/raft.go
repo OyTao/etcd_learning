@@ -419,6 +419,7 @@ func (r *raft) sendAppend(to uint64) {
 		pr.becomeSnapshot(sindex)
 		r.logger.Debugf("%x paused sending replication messages to %x [%s]", r.id, to, pr)
 	} else {
+		// OyTao: No Error.构造发送的消息 (一次发送多个Entry 从Pr.next --> Log.LastIndex)
 		m.Type = pb.MsgApp
 		m.Index = pr.Next - 1
 		m.LogTerm = term
@@ -430,6 +431,8 @@ func (r *raft) sendAppend(to uint64) {
 			case ProgressStateReplicate:
 				last := m.Entries[n-1].Index
 				pr.optimisticUpdate(last)
+				// OyTao: 将已经发送的Index存放在Inflight数组中。(Inflight是按照Index先后顺序排序的, 从StartIndex开始）
+				// 参考Process中对InFlight的说明。
 				pr.ins.add(last)
 			case ProgressStateProbe:
 				pr.pause()
@@ -898,6 +901,7 @@ func stepLeader(r *raft, m pb.Message) {
 		// OyTao:标记处理当前发送消息的progress is Active.
 		pr.RecentActive = true
 
+		// OyTao:
 		if m.Reject {
 			r.logger.Debugf("%x received msgApp rejection(lastindex: %d) from %x for index %d",
 				r.id, m.RejectHint, m.From, m.Index)
